@@ -1,0 +1,37 @@
+I am attempting to use cert-manager to create and manage the cluster certificates for an openshift cluster and I am running into an issue with the locality of the secrets. 
+
+Steps (all successful): 
+1. Install cert-manager
+2. Created `ClusterIssuer` with DNS01 challenge using Cloudflare 
+3. Create cluster `Certificate` with wildcard cert
+
+```
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: letsencrypt-cluster-certificate
+  namespace: openshift-config
+spec:
+  commonName: "*.apps.ocp.snimmo.com"
+  dnsNames:
+    - "*.apps.ocp.snimmo.com"
+  issuerRef:
+    group: cert-manager.io
+    kind: ClusterIssuer
+    name: letsencrypt-staging-cluster-issuer
+  secretName: letsencrypt-tls
+```
+
+Here's where the issue starts. I need to patch two objects: the `proxy/cluster` object which is a cluster-scoped object (no namespace) AND the `ingresscontroller.operator default` which is located in the `openshift-ingress-operator` namespace but the reference to the secret name is in another namespace (openshift-config).
+
+Would someone recommend a solution? I was thinking that the ClusterSecret operator might be the solution for this. https://clustersecret.io
+
+https://docs.openshift.com/container-platform/4.12/security/certificates/replacing-default-ingress-certificate.html
+
+
+oc create configmap custom-ca2 --from-file=ca-bundle.crt=/etc/letsencrypt/live/apps.ocp.snimmo.com/fullchain.pem -n openshift-config
+
+oc patch proxy/cluster --type=merge --patch='{"spec":{"trustedCA":{"name":"custom-ca"}}}'
+oc patch ingresscontroller.operator default --type=merge -p '{"spec":{"defaultCertificate": {"name": "letsencrypt-tls"}}}' -n openshift-ingress-operator
+
+oc edit ingresscontroller.operator default -n openshift-ingress-operator
